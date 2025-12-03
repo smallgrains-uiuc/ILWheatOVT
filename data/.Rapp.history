@@ -1,0 +1,3 @@
+load("/Users/jrut/Library/Mobile Documents/com~apple~CloudDocs/Documents/GitHub/ILWheatOVT/data/WheatOVT25.RData")
+ls()
+head(WheatOVT25)

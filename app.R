@@ -1,10 +1,17 @@
 library(shiny)
 library(DT)
 library(bslib)
+library(devtools)
+library(dplyr)
+library(reshape)
+library(htmltools)
 
+if (!require(ILWheatOVT)) devtools::install_github("smallgrains-uiuc/ILWheatOVT")
 library(IllinoisOVT)
 
-source("functions.R")
+#load in data to the workspace
+data(WheatOVT25)
+
 
 ui <- fluidPage(
   theme = bs_theme(
@@ -107,7 +114,6 @@ ui <- fluidPage(
           selectInput("smry", "Summary type:", choices = c("Compact", "Detailed"), selected = "Compact"),
           br(),
           sliderInput("md_range", "Maturity Date Range", min = -50, max = 50, value = c(-50, 50)),
-          sliderInput("y_range", "Grain Yield Range", min = 0, max = 200, value = c(0, 200)),
           actionButton("refresh_sliders", "Refresh Sliders"),
           br(), br(),
           uiOutput("scab_checkboxes"),
@@ -138,12 +144,7 @@ server <- function(input, output, session) {
   # update the sliders according to region/summary type
   observe({
     req(table_data())
-    ranges <- get_trait_ranges(table_data(), input$region)
-    
-    updateSliderInput(session, "y_range",
-                      min = ranges$Grain.Yield[1],
-                      max = ranges$Grain.Yield[2],
-                      value = ranges$y_range)
+    ranges <- get_maturity_range (table_data(), input$region)
     
     updateSliderInput(session, "md_range",
                       min = ranges$Maturity.Date[1],
@@ -152,35 +153,26 @@ server <- function(input, output, session) {
   })
   
   # dynamically update sliders' values
-  observeEvent(
-    list(input$y_range, input$md_range),
-    {
-      req(table_data())
-      
-      df_now <- filter_by_trait_ranges(
-        table_data(), input$region,
-        input$y_range, input$md_range
-      )
-      r <- get_trait_ranges(df_now, input$region)
-      
-      new_y <- c(
-        max(min(input$y_range[1], r$Grain.Yield[2]), r$Grain.Yield[1]),
-        min(max(input$y_range[2], r$Grain.Yield[1]), r$Grain.Yield[2])
-      )
-      new_md <- c(
-        max(min(input$md_range[1], r$Maturity.Date[2]), r$Maturity.Date[1]),
-        min(max(input$md_range[2], r$Maturity.Date[1]), r$Maturity.Date[2])
-      )
-      
-      updateSliderInput(session, "y_range", value = new_y)
-      updateSliderInput(session, "md_range",  value = new_md)
-    }
-  )
+  observeEvent(input$md_range, {
+    req(table_data())
+    
+    df_now <- filter_by_maturity_range(
+      table_data(), input$region, input$md_range
+    )
+    r <- get_maturity_range (df_now, input$region)
+    
+    new_md <- c(
+      max(min(input$md_range[1], r$Maturity.Date[2]), r$Maturity.Date[1]),
+      min(max(input$md_range[2], r$Maturity.Date[1]), r$Maturity.Date[2])
+    )
+    
+    updateSliderInput(session, "md_range", value = new_md)
+  })
   
   # filter values according to the sliders
   filtered_table <- reactive({
     req(table_data())
-    filter_by_trait_ranges(table_data(), input$region, input$y_range, input$md_range)
+    filter_by_maturity_range(table_data(), input$region, input$md_range)
   })
 
   # refresh sliders
@@ -198,7 +190,7 @@ server <- function(input, output, session) {
   })
   
   output$scab_checkboxes <- renderUI({
-    checkboxInput("hide_susceptible", "Hide susceptible varieties:", FALSE)
+    checkboxInput("hide_susceptible", "Hide Scab-susceptible varieties:", FALSE)
   })
   
   output$site_checkboxes <- renderUI({

@@ -15,7 +15,7 @@ data(WheatOVT25)
 
 instruction_text <- HTML("
 <b>*</b> You may interact with the sidebar. Select the region and table type of interest; narrow down the range of maturity or jointing date category; hide Scab-susceptible varieties; hide other test sites to compare site of interest and regional averages.<br>
-Clicking on column names allows you to change the data sorting; upward arrows indicate ascending order, and downward arrows indicate descending order.
+Clicking on column names allows you to change the data sorting; upward arrows indicate ascending order, and downward arrows indicate descending order.<br>
 <br>
 <b>1.</b> Northern phenology is based on data collected in Urbana; Southern phenology is based on data collected in St. Peter.<br>
 <b>2.</b> Varieties were evaluated for the heading date and the date when they reached maturity. A higher value indicates a later date, a lower value indicates an earlier date. A value of 0 indicates the earliest heading/maturing variety in the region.<br>

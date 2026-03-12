@@ -7,7 +7,7 @@ library(dplyr)
 library(reshape)
 library(htmltools)
 
-# install_github("smallgrains-uiuc/ILWheatOVT")
+install_github("smallgrains-uiuc/ILWheatOVT")
 library(IllinoisOVT)
 
 #load in data to the workspace

@@ -71,8 +71,14 @@ ui <- fluidPage(
         font-size: 0.9em;
       }
       
+      .btn {
+        padding: 2px 8px !important;
+        border-radius: 4px !important;
+        font-size: 0.9em;
+      }
+      
       .toggle-rail{
-        width: 20px;
+        width: 26px;
         background: white;
         display: flex;
         align-items: center;
@@ -81,8 +87,8 @@ ui <- fluidPage(
       
       .sidebar-arrow{
         padding: 0;
-        width: 20px;
-        height: 26px;
+        width: 25px;
+        height: 35px;
         font-size: 12px;
       }
       
@@ -128,10 +134,11 @@ ui <- fluidPage(
       table.dataTable thead th {
         font-size: 18px;
         padding: 6px 10px;
-        line-height: 1.1;
+        line-height: 1;
         text-align: center !important;
         vertical-align: middle !important;
         white-space: nowrap;
+        cursor: pointer;
       }
       
       table.dataTable tbody td {
@@ -163,12 +170,31 @@ ui <- fluidPage(
           selectInput("region", "Region:", choices = c("North", "South"), selected = "North"),
           selectInput("smry", "Summary type:", choices = c("Compact", "Detailed"), selected = "Compact"),
           
+          selectizeInput(
+            "search_text",
+            "Search by company or variety:",
+            choices = NULL,
+            selected = "",
+            multiple = FALSE,
+            options = list(
+              placeholder = "Type company or variety",
+              create = FALSE
+            )
+          ),
+          actionButton("search_btn", "Search"),
+          actionButton("clear_search", "Clear Search"),
+          br(),br(),
+          actionButton("compare_starred", "Compare Starred",
+                       title = "Click again to cancel the comparison."),
+          br(),br(),
+          
           div(
             title = "A higher value indicates a later maturity, a lower value indicates an earlier maturity. A value of 0 indicates the earliest maturing variety in the region.",
             sliderInput("md_range", "Maturity Date Range:", min = -50, max = 50, value = c(-50, 50))
           ),
           actionButton("refresh_sliders", "Refresh Sliders"),
           br(), br(),
+          
           uiOutput("scab_checkboxes"),
           uiOutput("jtd_checkboxes"),
           uiOutput("site_checkboxes")
@@ -187,6 +213,9 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
+  search_term <- reactiveVal("")
+  starred <- reactiveVal(character(0))
+  show_starred_only <- reactiveVal(FALSE)
   
   # Prepare table
   table_data <- reactive({
@@ -199,12 +228,25 @@ server <- function(input, output, session) {
       jointing_level()
   })
   
+  observe({
+    df <- table_data()
+    req(df)
+    
+    choices <- sort(unique(c(as.character(df$company), as.character(df$number))))
+    
+    updateSelectizeInput(
+      session, "search_text",
+      choices = choices,
+      selected = ""
+    )
+  })
+  
   # slider debounce
   md_range_debounced <- reactive(input$md_range) |> debounce(300)
   
   row_filters <- reactive({
     list(
-      jtd = input$hide_jtd %||% character(0),
+      jtd = input$show_jtd %||% character(0),
       scab = isTRUE(input$hide_susceptible)
     )
   })
@@ -217,25 +259,50 @@ server <- function(input, output, session) {
     df <- filter_by_maturity_range(df, input$region, md_range_debounced())
     
     filters <- row_filters()
-    if (length(filters$jtd) > 0 && "Jointing.Category" %in% names(df)) {
-      df <- df[!df$Jointing.Category %in% filters$jtd, , drop = FALSE]
+    
+    jtd_col <- grep("^Jointing.Category", names(df), value = TRUE)
+    if (length(jtd_col) == 1) {
+      df <- df[df[[jtd_col]] %in% filters$jtd, , drop = FALSE]
     }
-    if (filters$scab && "Scab.Category" %in% names(df)) {
+    if (filters$scab) {
       df <- df[!df$Scab.Category %in% c("S", "MS"), , drop = FALSE]
     }
     
     df
   })
   
+  # Search filter
+  data_filtered_search <- reactive({
+    filter_by_search(data_filtered_base(), search_term())
+  })
+  
+  # Star filter
+  data_filtered_rows <- reactive({
+    filter_by_starred(
+      data_filtered_search(),
+      starred(),
+      show_starred_only()
+    )
+  })
+  
   # Final data displayed with columns hidden
   display_data <- reactive({
-    df <- data_filtered_base()
+    df <- data_filtered_rows()
     
-    if (!is.null(input$hide_site) && length(input$hide_site) > 0) {
-      cols_to_hide <- unlist(lapply(input$hide_site, function(pat) {
-        grep(pat, names(df), value = TRUE)
+    selected_sites <- input$show_site %||% character(0)
+    
+    all_sites <- switch(input$region,
+                        South = c("Addieville", "Elkville", "StPeter"),
+                        North = c("Hampshire", "Perry", "Urbana"))
+    
+    sites_to_hide <- setdiff(all_sites, selected_sites)
+    
+    if (length(sites_to_hide) > 0) {
+      cols_to_hide <- unlist(lapply(sites_to_hide, function(site) {
+        grep(paste0("_", site, "$"), names(df), value = TRUE)
       }))
       cols_to_hide <- intersect(cols_to_hide, names(df))
+      
       if (length(cols_to_hide) > 0) {
         df <- df[, !names(df) %in% cols_to_hide, drop = FALSE]
       }
@@ -244,33 +311,55 @@ server <- function(input, output, session) {
     df
   })
   
-  # Rebuild table only when Region/Smry/column changes/hidden
+  # Rebuild table when Region/Smry/column changes/hidden
   rebuild_trigger <- reactiveVal(0)
-  observeEvent(list(input$region, input$smry, input$hide_site), {
+  observeEvent(list(input$region, input$smry, input$show_site), {
     rebuild_trigger(rebuild_trigger() + 1)
   })
   
   # Cache boundary_cols calculation
   boundary_cols <- reactive({
     df <- display_data()
-    data_cols <- names(df)[!names(df) %in% c("company", "number")]
+    data_cols <- names(df)[!names(df) %in% c("star", "company", "number")]
     if (length(data_cols) == 0) return(NULL)
     parsed <- do.call(rbind, strsplit(data_cols, "_"))
     study <- parsed[, 2]
-    which(!duplicated(study, fromLast = TRUE)) + 1
+    which(!duplicated(study, fromLast = TRUE)) + 2
   })
   
-  # Update slider according to region/summary type
-  observeEvent(input$smry, {
-    updateCheckboxInput(session, "hide_susceptible", value = FALSE)
-    updateCheckboxGroupInput(session, "hide_jtd", selected = character(0))
-    updateCheckboxGroupInput(session, "hide_site", selected = character(0))
+  observeEvent(input$search_btn, {
+    search_term(trimws(input$search_text %||% ""))
+  })
+  
+  observeEvent(input$clear_search, {
+    search_term("")
+    updateSelectizeInput(session, "search_text", selected = "")
+  })
+  
+  # Star / Unstar
+  observeEvent(input$toggle_star, {
+    key <- as.character(input$toggle_star)
+    cur <- starred()
     
-    ranges <- get_maturity_range(table_data(), input$region)
-    updateSliderInput(session, "md_range",
-                      min = ranges$Maturity.Date[1],
-                      max = ranges$Maturity.Date[2],
-                      value = ranges$Maturity.Date)
+    if (key %in% cur) {
+      starred(setdiff(cur, key))
+    } else {
+      starred(c(cur, key))
+    }
+    
+    if (show_starred_only()) {
+      df <- display_data()
+      df <- cbind(
+        star = ifelse(df$number %in% starred(), "★", "☆"),
+        df,
+        stringsAsFactors = FALSE
+      )
+      replaceData(proxy, df, resetPaging = FALSE, rownames = FALSE)
+    }
+  })
+  
+  observeEvent(input$compare_starred, {
+    show_starred_only(!show_starred_only())
   })
   
   observeEvent(input$refresh_sliders, {
@@ -291,6 +380,57 @@ server <- function(input, output, session) {
     updateSliderInput(session, "md_range", value = new_md)
   })
   
+  # Update input according to region and summary type
+  observeEvent(input$region, {
+    req(table_data())
+    
+    search_term("")
+    starred(character(0))
+    show_starred_only(FALSE)
+    
+    updateSelectizeInput(session, "search_text", selected = "")
+    updateCheckboxInput(session, "hide_susceptible", value = FALSE)
+    updateCheckboxGroupInput(session, "show_jtd", selected = c("E", "M", "L"))
+    updateCheckboxGroupInput(
+      session, "show_site",
+      selected = switch(input$region,
+                        South = c("Addieville", "Elkville", "StPeter"),
+                        North = c("Hampshire", "Perry", "Urbana"))
+    )
+    
+    ranges <- get_maturity_range(table_data(), input$region)
+    updateSliderInput(
+      session, "md_range",
+      min = ranges$Maturity.Date[1],
+      max = ranges$Maturity.Date[2],
+      value = ranges$Maturity.Date
+    )
+  })
+  
+  observeEvent(input$smry, {
+    req(table_data())
+    
+    search_term("")
+    updateSelectizeInput(session, "search_text", selected = "")
+    
+    updateCheckboxInput(session, "hide_susceptible", value = FALSE)
+    updateCheckboxGroupInput(session, "show_jtd", selected = c("E", "M", "L"))
+    updateCheckboxGroupInput(
+      session, "show_site",
+      selected = switch(input$region,
+                        South = c("Addieville", "Elkville", "StPeter"),
+                        North = c("Hampshire", "Perry", "Urbana"))
+    )
+    
+    ranges <- get_maturity_range(table_data(), input$region)
+    updateSliderInput(
+      session, "md_range",
+      min = ranges$Maturity.Date[1],
+      max = ranges$Maturity.Date[2],
+      value = ranges$Maturity.Date
+    )
+  })
+  
   # Dynamic UI
   output$scab_checkboxes <- renderUI({
     div(
@@ -302,7 +442,7 @@ server <- function(input, output, session) {
   output$jtd_checkboxes <- renderUI({
     req(input$smry == "Detailed")
     choices <- c("E", "M", "L")
-    checkboxGroupInput("hide_jtd", "Hide jointing categories:", choices = choices, selected = character(0))
+    checkboxGroupInput("show_jtd", "Show jointing categories:", choices = choices, selected = choices)
   })
   
   output$site_checkboxes <- renderUI({
@@ -310,7 +450,7 @@ server <- function(input, output, session) {
     choices <- switch(input$region,
                       South = c("Addieville", "Elkville", "StPeter"),
                       North = c("Hampshire", "Perry", "Urbana"))
-    checkboxGroupInput("hide_site", "Hide test sites:", choices = choices, selected = character(0))
+    checkboxGroupInput("show_site", "Show test sites:", choices = choices, selected = choices)
   })
   
   output$table <- renderDT({
@@ -318,14 +458,18 @@ server <- function(input, output, session) {
     rebuild_trigger()
     
     # Avoid rebuild triggered by slider/row filtering
-    df <- isolate(display_data())
+    df <- display_data()
     req(df)
     
+    df <- cbind(
+      star = ifelse(df$number %in% isolate(starred()), "★", "☆"),
+      df,
+      stringsAsFactors = FALSE
+    )
+    
     col_defs <- list(
-      list(
-        targets = "_all",
-        className = "dt-center"
-      )
+      list(targets = "_all", className = "dt-center"),
+      list(targets = 0, orderable = FALSE)
     )
     bc <- boundary_cols()
     if (!is.null(bc)) {
@@ -338,6 +482,30 @@ server <- function(input, output, session) {
       rownames = FALSE,
       escape = FALSE,
       extensions = c("FixedColumns"),
+      callback = JS(
+        "var dt = table;",
+        "var bindStarClick = function(tbl) {",
+        "  $(tbl.table().container()).on('click', 'tbody td:first-child', function() {",
+        "    var rowData = tbl.row($(this).closest('tr')).data();",
+        "    if (!rowData) return;",
+        "    var key = rowData[2];",
+        "    var current = $(this).text().trim();",
+        "    $(this).text(current === '★' ? '☆' : '★');",
+        "    Shiny.setInputValue('toggle_star', key, {priority: 'event'});",
+        "  });",
+        "};",
+        "bindStarClick(dt);",
+        "setTimeout(function() {",
+        "  $('.DTFC_Cloned').each(function() {",
+        "    $(this).on('click', 'tbody td:first-child', function() {",
+        "      var rowText = $(this).closest('tr').find('td').eq(2).text().trim();",
+        "      var current = $(this).text().trim();",
+        "      $(this).text(current === '★' ? '☆' : '★');",
+        "      Shiny.setInputValue('toggle_star', rowText, {priority: 'event'});",
+        "    });",
+        "  });",
+        "}, 300);"
+      ),
       options = list(
         scrollY = "calc(100vh - 180px)",
         scrollX = TRUE,
@@ -345,7 +513,7 @@ server <- function(input, output, session) {
         autoWidth = TRUE,
         paging = FALSE,
         dom = 't',
-        fixedColumns = list(leftColumns = 2),
+        fixedColumns = list(leftColumns = 3),
         columnDefs = col_defs
       )
     ) |>
@@ -372,11 +540,26 @@ server <- function(input, output, session) {
   })
   
   # Table proxy for slider/row filtering
-  proxy <- dataTableProxy('table')
+  proxy <- dataTableProxy("table")
+  
   observeEvent(
-    list(md_range_debounced(), input$hide_jtd, input$hide_susceptible),
+    list(
+      md_range_debounced(),
+      input$hide_susceptible,
+      input$show_jtd,
+      input$show_site,
+      input$search_btn,
+      input$compare_starred,
+      input$smry,
+      input$region
+    ),
     {
       df <- display_data()
+      df <- cbind(
+        star = ifelse(df$number %in% isolate(starred()), "★", "☆"),
+        df,
+        stringsAsFactors = FALSE
+      )
       replaceData(proxy, df, resetPaging = FALSE, rownames = FALSE)
     },
     ignoreInit = TRUE
@@ -384,3 +567,14 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
+# reload
+# star/unstar all
+# scab checkbox & checkbox layout
+# show the filtered row number left
+# search multiple company (search button?)
+# export option: kable()
+
+# problem: too many data
+# table into shiny app w/ video
+# conclusion & importance & futher steps

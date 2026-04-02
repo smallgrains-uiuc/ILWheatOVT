@@ -1,5 +1,6 @@
 #' Build a table header container with tooltips
-#'
+#' 
+#' Rename "number" to "variety".
 #' Generates a two-row HTML table header grouping columns by study and adding
 #' explanatory tooltips for traits.
 #'
@@ -13,7 +14,7 @@ make_tooltip_container <- function(df) {
   tooltip_rules <- list(
     MaturityHeading = list(
       pattern = "Maturity.Date|Heading.Date",
-      text = "Days after the earliest variety.\n0 = earliest."
+      text = "Days after the earliest variety. 0 = earliest."
     ),
     Jointing = list(
       pattern = "Jointing.Category",
@@ -33,8 +34,10 @@ make_tooltip_container <- function(df) {
     )
   )
   
+  sort_text <- "Click to sort ascending (↑); click again to sort descending (↓)."
+  
   cols <- names(df)
-  data_cols <- cols[!cols %in% c("company","number")]
+  data_cols <- cols[!cols %in% c("star", "company","number")]
   
   parsed <- do.call(rbind, strsplit(data_cols, "_"))
   trait <- parsed[,1]
@@ -51,8 +54,9 @@ make_tooltip_container <- function(df) {
   
   # Study header
   header_row1 <- list(
-    tags$th("company", rowspan=2, style="text-align:center;"),
-    tags$th("number",  rowspan=2, style="text-align:center;")
+    tags$th("★", rowspan = 2, style = "text-align:center;", title = "Click to star or unstar this row."),
+    tags$th("company", rowspan = 2, style = "text-align:center;"),
+    tags$th("variety",  rowspan = 2, style = "text-align:center;")
   )
   
   for (st in unique(study)) {
@@ -69,12 +73,17 @@ make_tooltip_container <- function(df) {
     }))
     
     trait_label <- format_trait(trait[i])
-    if (length(tips)) tags$th(HTML(trait_label), title=paste(tips,collapse="\n\n"))
-    else tags$th(HTML(trait_label))
+    full_title <- if (length(tips)) {
+      paste(c(tips, sort_text), collapse = "\n\n")
+    } else {
+      sort_text
+    }
+    
+    tags$th(HTML(trait_label), title = full_title)
   })
   
   withTags(
-    table(class="display",
+    table(class = "display",
           thead(
             tags$tr(header_row1),
             tags$tr(header_row2)

@@ -6,6 +6,7 @@ library(devtools)
 library(dplyr)
 library(reshape)
 library(htmltools)
+library(knitr)
 
 install_github("smallgrains-uiuc/ILWheatOVT")
 library(IllinoisOVT)
@@ -150,8 +151,76 @@ ui <- fluidPage(
       th.study-sep, td.study-sep {
         border-right: 2px solid #444 !important;
       }
+      
+      .shiny-options-group {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 8px 14px;
+      }
+      
+      .shiny-options-group .checkbox {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+      }
+      
+      #idle-warning {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0,0,0,0.8);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 8px;
+        font-size: 14px;
+        display: none;
+        z-index: 9999;
+      }
+    ")),
+    
+    tags$script(HTML("
+      var idleTime = 600000; // 10 min
+      var countdown = 10;
+      var idleTimer = null;
+      var countdownTimer = null;
+    
+      function resetTimer() {
+        clearTimeout(idleTimer);
+        clearInterval(countdownTimer);
+        document.getElementById('idle-warning').style.display = 'none';
+    
+        idleTimer = setTimeout(startCountdown, idleTime);
+      }
+    
+      function startCountdown() {
+        var counter = countdown;
+        var box = document.getElementById('idle-warning');
+        box.style.display = 'block';
+  
+        box.innerHTML = 'No activity detected. Page will reload in ' + counter + 's';
+  
+        countdownTimer = setInterval(function() {
+          counter--;
+          box.innerHTML = 'No activity detected. Reloading in ' + counter + 's';
+  
+          if (counter <= 0) {
+            clearInterval(countdownTimer);
+            location.reload();
+          }
+        }, 1000);
+      }
+    
+      // Monitor user activity
+      ['mousemove', 'keydown', 'click', 'scroll'].forEach(function(evt) {
+        document.addEventListener(evt, resetTimer, true);
+      });
+    
+      document.addEventListener('DOMContentLoaded', function() {
+        resetTimer();
+      });
     "))
   ),
+  
+  div(id = "idle-warning"),
   
   div(class = "fixed-title",
       h2("Illinois Wheat Variety Test Data Overview"),
@@ -162,7 +231,9 @@ ui <- fluidPage(
         placement = "bottom",
         instruction_text,
         options = list(html = TRUE, trigger = "click")
-      )
+      ),
+      div(style = "margin-left: 15px;",
+          downloadButton("download_html", "Download HTML Table"))
   ),
   
   div(class = "main-container",
@@ -170,27 +241,19 @@ ui <- fluidPage(
           selectInput("region", "Region:", choices = c("North", "South"), selected = "North"),
           selectInput("smry", "Summary type:", choices = c("Compact", "Detailed"), selected = "Compact"),
           
-          selectizeInput(
-            "search_text",
-            "Search by company or variety:",
-            choices = NULL,
-            selected = "",
-            multiple = FALSE,
-            options = list(
-              placeholder = "Type company or variety",
-              create = FALSE
-            )
-          ),
+          uiOutput("search_ui"),
           actionButton("search_btn", "Search"),
           actionButton("clear_search", "Clear Search"),
           br(),br(),
-          actionButton("compare_starred", "Compare Starred",
-                       title = "Click again to cancel the comparison."),
+          actionButton("toggle_star_all", "Star/Unstar All",
+                       title = "Star/unstar all currently visible varieties."),
+          actionButton("show_starred", "Show/Hide Starred",
+                       title = "Click again to return to the full table."),
           br(),br(),
           
           div(
             title = "A higher value indicates a later maturity, a lower value indicates an earlier maturity. A value of 0 indicates the earliest maturing variety in the region.",
-            sliderInput("md_range", "Maturity Date Range:", min = -50, max = 50, value = c(-50, 50))
+            uiOutput("md_slider_ui")
           ),
           actionButton("refresh_sliders", "Refresh Sliders"),
           br(), br(),
@@ -247,7 +310,7 @@ server <- function(input, output, session) {
   row_filters <- reactive({
     list(
       jtd = input$show_jtd %||% character(0),
-      scab = isTRUE(input$hide_susceptible)
+      scab = input$show_scab %||% character(0)
     )
   })
   
@@ -264,8 +327,10 @@ server <- function(input, output, session) {
     if (length(jtd_col) == 1) {
       df <- df[df[[jtd_col]] %in% filters$jtd, , drop = FALSE]
     }
-    if (filters$scab) {
-      df <- df[!df$Scab.Category %in% c("S", "MS"), , drop = FALSE]
+    
+    scab_col <- grep("^Scab.Category", names(df), value = TRUE)
+    if (length(scab_col) == 1) {
+      df <- df[df[[scab_col]] %in% filters$scab, , drop = FALSE]
     }
     
     df
@@ -276,6 +341,12 @@ server <- function(input, output, session) {
     filter_by_search(data_filtered_base(), search_term())
   })
   
+  current_visible_varieties <- reactive({
+    df <- display_data()
+    req(df)
+    unique(as.character(df$number))
+  })
+  
   # Star filter
   data_filtered_rows <- reactive({
     filter_by_starred(
@@ -283,6 +354,12 @@ server <- function(input, output, session) {
       starred(),
       show_starred_only()
     )
+  })
+  
+  current_n <- reactive({
+    df <- data_filtered_rows()   # include search / slider / scab / jtd / starred
+    req(df)
+    nrow(df)
   })
   
   # Final data displayed with columns hidden
@@ -358,7 +435,29 @@ server <- function(input, output, session) {
     }
   })
   
-  observeEvent(input$compare_starred, {
+  # Star/Unstar All
+  observeEvent(input$toggle_star_all, {
+    visible_keys <- current_visible_varieties()
+    cur <- starred()
+    
+    if (length(visible_keys) == 0) return()
+    
+    if (all(visible_keys %in% cur)) {
+      starred(setdiff(cur, visible_keys))
+    } else {
+      starred(union(cur, visible_keys))
+    }
+    
+    df <- display_data()
+    df <- cbind(
+      star = ifelse(df$number %in% starred(), "★", "☆"),
+      df,
+      stringsAsFactors = FALSE
+    )
+    replaceData(proxy, df, resetPaging = FALSE, rownames = FALSE)
+  })
+  
+  observeEvent(input$show_starred, {
     show_starred_only(!show_starred_only())
   })
   
@@ -380,7 +479,7 @@ server <- function(input, output, session) {
     updateSliderInput(session, "md_range", value = new_md)
   })
   
-  # Update input according to region and summary type
+  # Update input according to region and/or summary type
   observeEvent(input$region, {
     req(table_data())
     
@@ -389,7 +488,10 @@ server <- function(input, output, session) {
     show_starred_only(FALSE)
     
     updateSelectizeInput(session, "search_text", selected = "")
-    updateCheckboxInput(session, "hide_susceptible", value = FALSE)
+    updateCheckboxGroupInput(
+      session, "show_scab",
+      selected = c("S", "MS", "M", "MR")
+    )
     updateCheckboxGroupInput(session, "show_jtd", selected = c("E", "M", "L"))
     updateCheckboxGroupInput(
       session, "show_site",
@@ -432,17 +534,71 @@ server <- function(input, output, session) {
   })
   
   # Dynamic UI
+  output$search_ui <- renderUI({
+    selectizeInput(
+      "search_text",
+      "Search (companies / varieties):",
+      choices = NULL,
+      selected = "",
+      multiple = TRUE,
+      options = list(
+        placeholder = "Type companies / varieties"
+      )
+    )
+  })
+  
+  output$md_slider_ui <- renderUI({
+    df <- data_filtered_rows()
+    req(df)
+    ranges <- get_maturity_range(table_data(), input$region)
+    sliderInput(
+      "md_range",
+      label = paste0("Maturity range (", nrow(df), ")"),
+      min = ranges$Maturity.Date[1],
+      max = ranges$Maturity.Date[2],
+      value = input$md_range %||% ranges$Maturity.Date
+    )
+  })
+  
   output$scab_checkboxes <- renderUI({
-    div(
-      title = 'Hide varieties with Scab resistance category "S" and "MS".',
-      checkboxInput("hide_susceptible", "Hide Scab-susceptible varieties:", FALSE)
+    df <- data_filtered_rows()
+    req(df)
+    
+    scab_col <- grep("^Scab.Category", names(df), value = TRUE)
+    counts <- table(df[[scab_col]])
+    choices <- c("S", "MS", "M", "MR")
+    labels <- paste0(
+      choices,
+      " (", counts[choices] %||% 0, ")"
+    )
+    
+    checkboxGroupInput("show_scab", "Show scab resistance:",
+      choices = setNames(choices, labels),
+      selected = input$show_scab %||% choices,
+      inline = TRUE
     )
   })
   
   output$jtd_checkboxes <- renderUI({
     req(input$smry == "Detailed")
+    df <- data_filtered_rows()
+    req(df)
+    
+    jtd_col <- grep("^Jointing.Category", names(df), value = TRUE)
+    counts <- table(df[[jtd_col]])
     choices <- c("E", "M", "L")
-    checkboxGroupInput("show_jtd", "Show jointing categories:", choices = choices, selected = choices)
+    labels <- paste0(
+      choices,
+      " (", counts[choices] %||% 0, ")"
+    )
+    
+    checkboxGroupInput(
+      "show_jtd",
+      "Show jointing categories:",
+      choices = setNames(choices, labels),
+      selected = input$show_jtd %||% choices,
+      inline = TRUE
+    )
   })
   
   output$site_checkboxes <- renderUI({
@@ -450,8 +606,22 @@ server <- function(input, output, session) {
     choices <- switch(input$region,
                       South = c("Addieville", "Elkville", "StPeter"),
                       North = c("Hampshire", "Perry", "Urbana"))
-    checkboxGroupInput("show_site", "Show test sites:", choices = choices, selected = choices)
+    checkboxGroupInput("show_site", "Show test sites:",
+      choices = choices,
+      selected = choices,
+      inline = TRUE)
   })
+  
+  output$download_html <- downloadHandler(
+    filename = function() {
+      paste0("Wheat_Varieties_", input$region, "_", input$smry, "_", ".html")
+    },
+    content = function(file) {
+      df <- display_data()
+      html <- kable(df, format = "html")
+      writeLines(as.character(html), file)
+    }
+  )
   
   output$table <- renderDT({
     # Rely on rebuild trigger to rebuild only when necessary
@@ -549,7 +719,8 @@ server <- function(input, output, session) {
       input$show_jtd,
       input$show_site,
       input$search_btn,
-      input$compare_starred,
+      input$toggle_star_all,
+      input$show_starred,
       input$smry,
       input$region
     ),
@@ -568,13 +739,8 @@ server <- function(input, output, session) {
 
 shinyApp(ui, server)
 
-# reload
 # star/unstar all
-# scab checkbox & checkbox layout
-# show the filtered row number left
-# search multiple company (search button?)
+# checkbox layout
+# show the filtered row number
+# search multiple companies/varieties
 # export option: kable()
-
-# problem: too many data
-# table into shiny app w/ video
-# conclusion & importance & futher steps

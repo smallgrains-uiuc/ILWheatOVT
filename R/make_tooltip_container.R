@@ -54,7 +54,12 @@ make_tooltip_container <- function(df) {
   
   # Study header
   header_row1 <- list(
-    tags$th("★", rowspan = 2, style = "text-align:center;", title = "Click to star or unstar this row."),
+    tags$th(
+      HTML('<i class="fa fa-star"></i>'),
+      rowspan = 2,
+      style = "text-align:center;",
+      title = "Click to star or unstar this row."
+    ),
     tags$th("company", rowspan = 2, style = "text-align:center;"),
     tags$th("variety",  rowspan = 2, style = "text-align:center;")
   )

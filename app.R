@@ -33,6 +33,7 @@ ui <- fluidPage(
   ),
   
   tags$head(
+    # Format and font
     tags$style(HTML("
       /* Prevent entire webpage scrolling */
       html, body {
@@ -175,8 +176,60 @@ ui <- fluidPage(
         display: none;
         z-index: 9999;
       }
+      
+      body.export-shot .main-container,
+      body.export-shot .main-panel,
+      body.export-shot .table-container,
+      body.export-shot .dataTables_wrapper,
+      body.export-shot .dataTables_scroll,
+      body.export-shot .dataTables_scrollBody {
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+      }
+      
+      body.export-shot {
+        overflow: visible !important;
+      }
     ")),
     
+    # For screenshot download
+    tags$script(src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
+    tags$script(HTML("
+      document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('click', function(e) {
+          var btn = e.target.closest('#download_png');
+          if (!btn) return;
+    
+          var target = document.querySelector('.main-container');
+          if (!target) return;
+    
+          document.body.classList.add('export-shot');
+    
+          setTimeout(function() {
+            html2canvas(target, {
+              backgroundColor: '#ffffff',
+              useCORS: true,
+              scale: 2,
+              windowWidth: target.scrollWidth,
+              windowHeight: target.scrollHeight
+            }).then(function(canvas) {
+              var link = document.createElement('a');
+              link.download = 'wheat_tool_screenshot.png';
+              link.href = canvas.toDataURL('image/png');
+              link.click();
+    
+              document.body.classList.remove('export-shot');
+            }).catch(function(err) {
+              console.error(err);
+              document.body.classList.remove('export-shot');
+            });
+          }, 300);
+        });
+      });
+    ")),
+    
+    # For inactivity detection and reloading
     tags$script(HTML("
       var idleTime = 600000; // 10 min
       var countdown = 10;
@@ -220,8 +273,10 @@ ui <- fluidPage(
     "))
   ),
   
+  # inactivity warning
   div(id = "idle-warning"),
   
+  # main page
   div(class = "fixed-title",
       h2("Illinois Wheat Variety Test Data Overview"),
       popover(
@@ -233,7 +288,7 @@ ui <- fluidPage(
         options = list(html = TRUE, trigger = "click")
       ),
       div(style = "margin-left: 15px;",
-          downloadButton("download_html", "Download HTML Table"))
+          actionButton("download_png", "Download Screenshot"))
   ),
   
   div(class = "main-container",
@@ -241,16 +296,32 @@ ui <- fluidPage(
           selectInput("region", "Region:", choices = c("North", "South"), selected = "North"),
           selectInput("smry", "Summary type:", choices = c("Compact", "Detailed"), selected = "Compact"),
           
-          uiOutput("search_ui"),
-          actionButton("search_btn", "Search"),
+          # Select
+          selectizeInput(
+            "search_text",
+            label = "Search (companies / varieties):",
+            choices = NULL,
+            selected = NULL,
+            multiple = TRUE,
+            options = list(
+              placeholder = "Type companies / varieties"
+            )
+          ),
+          div(
+            title = "Only companies and varieties matching the currently applied filters are shown.",
+            actionButton("search_btn", "Search")
+          ),
           actionButton("clear_search", "Clear Search"),
           br(),br(),
+          
+          # Star
           actionButton("toggle_star_all", "Star/Unstar All",
                        title = "Star/unstar all currently visible varieties."),
           actionButton("show_starred", "Show/Hide Starred",
                        title = "Click again to return to the full table."),
           br(),br(),
           
+          # Maturity slider
           div(
             title = "A higher value indicates a later maturity, a lower value indicates an earlier maturity. A value of 0 indicates the earliest maturing variety in the region.",
             uiOutput("md_slider_ui")
@@ -291,18 +362,23 @@ server <- function(input, output, session) {
       jointing_level()
   })
   
-  observe({
-    df <- table_data()
+  # Search Choices
+  observeEvent(data_filtered_base(), {
+    df <- data_filtered_base()
     req(df)
     
     choices <- sort(unique(c(as.character(df$company), as.character(df$number))))
     
+    current_selected <- isolate(input$search_text %||% character(0))
+    current_selected <- intersect(current_selected, choices)
+    
     updateSelectizeInput(
       session, "search_text",
       choices = choices,
-      selected = ""
+      selected = current_selected,
+      server = TRUE
     )
-  })
+  }, ignoreInit = FALSE)
   
   # slider debounce
   md_range_debounced <- reactive(input$md_range) |> debounce(300)
@@ -337,6 +413,7 @@ server <- function(input, output, session) {
   })
   
   # Search filter
+  # Only Show/Hide Starred re-calculate data_filtered_rows()
   data_filtered_search <- reactive({
     filter_by_search(data_filtered_base(), search_term())
   })
@@ -349,11 +426,15 @@ server <- function(input, output, session) {
   
   # Star filter
   data_filtered_rows <- reactive({
-    filter_by_starred(
-      data_filtered_search(),
-      starred(),
-      show_starred_only()
-    )
+    if (isTRUE(show_starred_only())) {
+      filter_by_starred(
+        data_filtered_search(),
+        starred(),
+        TRUE
+      )
+    } else {
+      data_filtered_search()
+    }
   })
   
   current_n <- reactive({
@@ -427,7 +508,9 @@ server <- function(input, output, session) {
     if (show_starred_only()) {
       df <- display_data()
       df <- cbind(
-        star = ifelse(df$number %in% starred(), "★", "☆"),
+        star = ifelse(df$number %in% starred(),
+                      '<i class="fa fa-star"></i>',
+                      '<i class="fa fa-star-o"></i>'),
         df,
         stringsAsFactors = FALSE
       )
@@ -450,7 +533,9 @@ server <- function(input, output, session) {
     
     df <- display_data()
     df <- cbind(
-      star = ifelse(df$number %in% starred(), "★", "☆"),
+      star = ifelse(df$number %in% starred(),
+                    '<i class="fa fa-star"></i>',
+                    '<i class="fa fa-star-o"></i>'),
       df,
       stringsAsFactors = FALSE
     )
@@ -515,8 +600,8 @@ server <- function(input, output, session) {
     search_term("")
     updateSelectizeInput(session, "search_text", selected = "")
     
-    updateCheckboxInput(session, "hide_susceptible", value = FALSE)
-    updateCheckboxGroupInput(session, "show_jtd", selected = c("E", "M", "L"))
+    updateCheckboxInput(session, "show_scab", value = FALSE)
+    updateCheckboxInput(session, "show_jtd", value = FALSE)
     updateCheckboxGroupInput(
       session, "show_site",
       selected = switch(input$region,
@@ -534,19 +619,6 @@ server <- function(input, output, session) {
   })
   
   # Dynamic UI
-  output$search_ui <- renderUI({
-    selectizeInput(
-      "search_text",
-      "Search (companies / varieties):",
-      choices = NULL,
-      selected = "",
-      multiple = TRUE,
-      options = list(
-        placeholder = "Type companies / varieties"
-      )
-    )
-  })
-  
   output$md_slider_ui <- renderUI({
     df <- data_filtered_rows()
     req(df)
@@ -612,17 +684,6 @@ server <- function(input, output, session) {
       inline = TRUE)
   })
   
-  output$download_html <- downloadHandler(
-    filename = function() {
-      paste0("Wheat_Varieties_", input$region, "_", input$smry, "_", ".html")
-    },
-    content = function(file) {
-      df <- display_data()
-      html <- kable(df, format = "html")
-      writeLines(as.character(html), file)
-    }
-  )
-  
   output$table <- renderDT({
     # Rely on rebuild trigger to rebuild only when necessary
     rebuild_trigger()
@@ -632,7 +693,9 @@ server <- function(input, output, session) {
     req(df)
     
     df <- cbind(
-      star = ifelse(df$number %in% isolate(starred()), "★", "☆"),
+      star = ifelse(df$number %in% isolate(starred()),
+                    '<i class="fa fa-star"></i>',
+                    '<i class="fa fa-star-o"></i>'),
       df,
       stringsAsFactors = FALSE
     )
@@ -659,8 +722,12 @@ server <- function(input, output, session) {
         "    var rowData = tbl.row($(this).closest('tr')).data();",
         "    if (!rowData) return;",
         "    var key = rowData[2];",
-        "    var current = $(this).text().trim();",
-        "    $(this).text(current === '★' ? '☆' : '★');",
+        "    var isStar = $(this).find('i').hasClass('fa-star');",
+        "    if (isStar) {",
+        "      $(this).html('<i class=\"fa fa-star-o\"></i>');",
+        "    } else {",
+        "      $(this).html('<i class=\"fa fa-star\"></i>');",
+        "    }",
         "    Shiny.setInputValue('toggle_star', key, {priority: 'event'});",
         "  });",
         "};",
@@ -669,8 +736,12 @@ server <- function(input, output, session) {
         "  $('.DTFC_Cloned').each(function() {",
         "    $(this).on('click', 'tbody td:first-child', function() {",
         "      var rowText = $(this).closest('tr').find('td').eq(2).text().trim();",
-        "      var current = $(this).text().trim();",
-        "      $(this).text(current === '★' ? '☆' : '★');",
+        "      var isStar = $(this).find('i').hasClass('fa-star');",
+        "      if (isStar) {",
+        "        $(this).html('<i class=\"fa fa-star-o\"></i>');",
+        "      } else {",
+        "        $(this).html('<i class=\"fa fa-star\"></i>');",
+        "      }",
         "      Shiny.setInputValue('toggle_star', rowText, {priority: 'event'});",
         "    });",
         "  });",
@@ -715,7 +786,7 @@ server <- function(input, output, session) {
   observeEvent(
     list(
       md_range_debounced(),
-      input$hide_susceptible,
+      input$show_scab,
       input$show_jtd,
       input$show_site,
       input$search_btn,
@@ -727,7 +798,9 @@ server <- function(input, output, session) {
     {
       df <- display_data()
       df <- cbind(
-        star = ifelse(df$number %in% isolate(starred()), "★", "☆"),
+        star = ifelse(df$number %in% starred(),
+                      '<i class="fa fa-star"></i>',
+                      '<i class="fa fa-star-o"></i>'),
         df,
         stringsAsFactors = FALSE
       )

@@ -8,30 +8,41 @@ library(reshape)
 library(htmltools)
 library(knitr)
 
-install_github("smallgrains-uiuc/ILWheatOVT")
+if (!requireNamespace("IllinoisOVT", quietly = TRUE)) {
+  devtools::install_github("smallgrains-uiuc/ILWheatOVT")
+}
 library(IllinoisOVT)
 
-#load in data to the workspace
+# Load the current-year wheat trial dataset used by this browser.
 data(WheatOVT25)
 
+# User-facing help Text
 instruction_text <- HTML("
 <b>*</b> You may interact with the sidebar. Select the region and table type of interest; narrow down the range of maturity or jointing date category; hide Scab-susceptible varieties; hide other test sites to compare site of interest and regional averages.<br>
 Clicking on column names allows you to change the data sorting; upward arrows indicate ascending order, and downward arrows indicate descending order.<br>
 <br>
 <b>1.</b> Northern phenology is based on data collected in Urbana; Southern phenology is based on data collected in St. Peter.<br>
-<b>2.</b> Varieties were evaluated for the heading date and the date when they reached maturity. A higher value indicates a later date, a lower value indicates an earlier date. A value of 0 indicates the earliest heading/maturing variety in the region.<br>
+<b>2.</b> Varieties were evaluated for the heading date and the date when they reached maturity. A greater value indicates a later date, a smaller value indicates an earlier date. A value of 0 indicates the earliest heading/maturing variety in the region.<br>
 <b>3.</b> Varieties were evaluated for the timing of jointing and classified into categories: E = early, M = medium, L = Late. Jointing begins at Feekes growth stage 6 and marks the beginning of more rapid growth and increased vulnerability to freeze damage. Varieties that are classified as E, jointed at a time when hard freezes are probable. Varieties that are classified as M, jointed at a time when hard freezes are possible, but unlikely. Varieties classified as L, jointed at a time when hard freezes are highly unlikely.<br>
 <b>4.</b> Varieties were evaluated for resistance to Scab (FHB) at the University of Illinois South Farm at Urbana, IL. To promote disease symptoms, we spread scabby corn kernels on the soil surface 3 weeks before heading and mist irrigated three times per day for 30 minutes. Ratings for each variety are based on expected vomitoxin levels under FHB epidemic conditions. Ratings are expressed on a 1 to 9 scale with 1 being the best (lowest vomitoxin) and 9 being the worst (highest vomitoxin). Varieties with ratings 4.3 or lower are considered at least moderately resistant to FHB. MR = Moderately Resistant, which is the highest level of resistance available, M = Intermediate level of resistance, MS = Moderately susceptible, S = Susceptible. Higher levels of resistance provide greater control of the disease. The best control is obtained when moderate resistance is combined with a fungicide at flowering.
 ")
 
+# ------------------------------------------------------------------------------
+# User Interface
+# ------------------------------------------------------------------------------
+
 ui <- fluidPage(
+  
   useShinyjs(),
+  div(style = "display: none;", icon("star")),
   
   theme = bs_theme(
-    primary = "#13294B",   # RGB 255,95,5 Illini Blue
-    secondary = "#FF5F05"  # RGB 19,41,75 Illini Orange
+    primary = "#13294B",   # Illini Blue
+    secondary = "#FF5F05"  # Illini Orange
   ),
   
+  # Page-level CSS and browser-side helpers for fixed layout, screenshot export,
+  # sidebar behavior, and idle-session refresh.
   tags$head(
     # Format and font
     tags$style(HTML("
@@ -89,9 +100,12 @@ ui <- fluidPage(
       
       .sidebar-arrow{
         padding: 0;
-        width: 25px;
-        height: 35px;
-        font-size: 12px;
+        width: 24px;
+        height: 36px;
+        font-size: 26px !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
       }
       
       .sidebar-collapsed .sidebar-panel{
@@ -193,7 +207,7 @@ ui <- fluidPage(
       }
     ")),
     
-    # For screenshot download
+    # Screenshot download
     tags$script(src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
     tags$script(HTML("
       document.addEventListener('DOMContentLoaded', function() {
@@ -229,7 +243,7 @@ ui <- fluidPage(
       });
     ")),
     
-    # For inactivity detection and reloading
+    # Inactivity detection and reloading
     tags$script(HTML("
       var idleTime = 600000; // 10 min
       var countdown = 10;
@@ -273,12 +287,12 @@ ui <- fluidPage(
     "))
   ),
   
-  # inactivity warning
   div(id = "idle-warning"),
   
   # main page
   div(class = "fixed-title",
       h2("Illinois Wheat Variety Test Data Overview"),
+      
       popover(
         actionButton("legend_btn", label = NULL, "Instructions",
                      style = "margin-left: 10px;"),
@@ -296,6 +310,15 @@ ui <- fluidPage(
           selectInput("region", "Region:", choices = c("North", "South"), selected = "North"),
           selectInput("smry", "Summary type:", choices = c("Compact", "Detailed"), selected = "Compact"),
           
+          # Switch display
+          radioButtons(
+            "value_display",
+            "Display values:",
+            choices = c("Raw data" = "raw", "Percentage" = "percent"),
+            selected = "percent",
+            inline = TRUE
+          ),
+          
           # Select
           selectizeInput(
             "search_text",
@@ -308,18 +331,24 @@ ui <- fluidPage(
             )
           ),
           div(
-            title = "Only companies and varieties matching the currently applied filters are shown.",
-            actionButton("search_btn", "Search")
+            style = "display: flex; gap: 8px; align-items: center;",
+            div(
+              title = "Only companies and varieties matching the currently applied filters are shown.",
+              actionButton("search_btn", "Search")
+            ),
+            actionButton("clear_search", "Clear Search")
           ),
-          actionButton("clear_search", "Clear Search"),
-          br(),br(),
+          br(),
           
           # Star
-          actionButton("toggle_star_all", "Star/Unstar All",
+          div(
+            style = "display: flex; gap: 8px; align-items: center;",
+            actionButton("toggle_star_all", "Star/Unstar All",
                        title = "Star/unstar all currently visible varieties."),
-          actionButton("show_starred", "Show/Hide Starred",
+            actionButton("show_starred", "Show/Hide Starred",
                        title = "Click again to return to the full table."),
-          br(),br(),
+          ),
+          br(),
           
           # Maturity slider
           div(
@@ -335,7 +364,7 @@ ui <- fluidPage(
       ),
       
       div(class = "toggle-rail",
-          actionButton("toggleSidebar", NULL, icon = icon("chevron-left"), class = "sidebar-arrow")
+          actionButton("toggleSidebar", NULL, icon = HTML("&lsaquo;"), class = "sidebar-arrow")
       ),
       
       div(class = "main-panel",
@@ -346,17 +375,36 @@ ui <- fluidPage(
   )
 )
 
+# ------------------------------------------------------------------------------
+# Server Logic
+# ------------------------------------------------------------------------------
+
 server <- function(input, output, session) {
+  
+  # Session-local state for search text, starred varieties, and starred-only mode.
+  # These values reset when the Shiny session restarts.
   search_term <- reactiveVal("")
   starred <- reactiveVal(character(0))
   show_starred_only <- reactiveVal(FALSE)
   
-  # Prepare table
+  # ------------------------------------------------------------------------------
+  # Data Pipeline
+  #
+  # Start from the long-format source data, normalize phenology values, optionally
+  # convert target traits to percentages, then reshape into the wide table consumed
+  # by the UI.
+  # ------------------------------------------------------------------------------
   table_data <- reactive({
     # pipe operators replace repeated assignments
-    WheatOVT25 |>
+    raw_df <- WheatOVT25 |>
       normalize_maturity() |>
-      normalize_heading() |>
+      normalize_heading()
+    
+    if (identical(input$value_display, "percent")) {
+      raw_df <- normalize_percentage(raw_df)
+    }
+    
+    raw_df |>
       prepare_table(Region = input$region, smryType = input$smry) |>
       scab_res_level() |>
       jointing_level()
@@ -380,7 +428,7 @@ server <- function(input, output, session) {
     )
   }, ignoreInit = FALSE)
   
-  # slider debounce
+  # Slider debounce
   md_range_debounced <- reactive(input$md_range) |> debounce(300)
   
   row_filters <- reactive({
@@ -443,7 +491,7 @@ server <- function(input, output, session) {
     nrow(df)
   })
   
-  # Final data displayed with columns hidden
+  # Apply column-level site visibility after row filters.
   display_data <- reactive({
     df <- data_filtered_rows()
     
@@ -469,9 +517,9 @@ server <- function(input, output, session) {
     df
   })
   
-  # Rebuild table when Region/Smry/column changes/hidden
+  # Rebuild table when Region/Smry/column changes/hidden/display mode changes
   rebuild_trigger <- reactiveVal(0)
-  observeEvent(list(input$region, input$smry, input$show_site), {
+  observeEvent(list(input$region, input$smry, input$show_site, input$value_display), {
     rebuild_trigger(rebuild_trigger() + 1)
   })
   
@@ -494,7 +542,9 @@ server <- function(input, output, session) {
     updateSelectizeInput(session, "search_text", selected = "")
   })
   
-  # Star / Unstar
+  # Starred varieties are tracked by variety number and updated from both the main
+  # table and the fixed-column clone created by DataTables.
+  # Star/Unstar
   observeEvent(input$toggle_star, {
     key <- as.character(input$toggle_star)
     cur <- starred()
@@ -564,7 +614,7 @@ server <- function(input, output, session) {
     updateSliderInput(session, "md_range", value = new_md)
   })
   
-  # Update input according to region and/or summary type
+  # Update input based on region and/or summary type
   observeEvent(input$region, {
     req(table_data())
     
@@ -618,7 +668,12 @@ server <- function(input, output, session) {
     )
   })
   
-  # Dynamic UI
+  # ------------------------------------------------------------------------------
+  # Dynamic Sidebar Controls
+  #
+  # Checkbox labels and maturity range controls are rebuilt from the current
+  # filtered data so counts and slider limits remain accurate.
+  # ------------------------------------------------------------------------------
   output$md_slider_ui <- renderUI({
     df <- data_filtered_rows()
     req(df)
@@ -684,8 +739,13 @@ server <- function(input, output, session) {
       inline = TRUE)
   })
   
+  # ------------------------------------------------------------------------------
+  # Table Rendering
+  #
+  # Build the display table, add the star column, attach grouped headers/tooltips,
+  # configure DataTables behavior, and apply conditional formatting.
+  # ------------------------------------------------------------------------------
   output$table <- renderDT({
-    # Rely on rebuild trigger to rebuild only when necessary
     rebuild_trigger()
     
     # Avoid rebuild triggered by slider/row filtering
@@ -709,7 +769,9 @@ server <- function(input, output, session) {
       col_defs <- append(col_defs, list(list(targets = bc, className = "study-sep")))
     }
     
-    datatable(
+    value_cols <- grep("^(Grain\\.Yield|Test\\.Weight|Plant\\.Height)_", names(df), value = TRUE)
+    
+    dt <- datatable(
       df,
       container = make_tooltip_container(df),
       rownames = FALSE,
@@ -761,6 +823,39 @@ server <- function(input, output, session) {
       formatStyle(columns = names(df), 
                   fontSize = '16px',
                   padding = '2px 4px')
+    
+    # Percent mode highlights values above 100. Raw mode highlights values above the
+    # current column mean from the unsearched table for the selected region/summary.
+    if (identical(input$value_display, "percent")) {
+      dt <- dt |>
+        formatStyle(
+          columns = value_cols,
+          color = styleInterval(c(100), c("#000000", "#d55e00"))
+        )
+    } else {
+      threshold_source <- table_data()
+      threshold_cols <- intersect(value_cols, names(threshold_source))
+      
+      if (length(threshold_cols) > 0) {
+        thresholds <- sapply(threshold_cols, function(col) {
+          mean(as.numeric(threshold_source[[col]]), na.rm = TRUE)
+        })
+        
+        for (col in threshold_cols) {
+          threshold <- thresholds[[col]]
+          
+          if (is.finite(threshold)) {
+            dt <- dt |>
+              formatStyle(
+                columns = col,
+                color = styleInterval(c(threshold), c("#000000", "#d55e00"))
+              )
+          }
+        }
+      }
+    }
+    
+    dt
   })
   
   # Sidebar collapse
@@ -769,10 +864,10 @@ server <- function(input, output, session) {
     collapsed(!collapsed())
     if (collapsed()) {
       addClass(selector = "body", class = "sidebar-collapsed")
-      updateActionButton(session, "toggleSidebar", icon = icon("chevron-right"))
+      updateActionButton(session, "toggleSidebar", icon = HTML("&rsaquo;"))
     } else {
       removeClass(selector = "body", class = "sidebar-collapsed")
-      updateActionButton(session, "toggleSidebar", icon = icon("chevron-left"))
+      updateActionButton(session, "toggleSidebar", icon = HTML("&lsaquo;"))
     }
     
     # recalculate the dt width to prevent header and column misalignment
@@ -780,7 +875,7 @@ server <- function(input, output, session) {
     
   })
   
-  # Table proxy for slider/row filtering
+  # Proxy of lightweight table refresh for row filters and star actions.
   proxy <- dataTableProxy("table")
   
   observeEvent(
@@ -811,9 +906,3 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
-
-# star/unstar all
-# checkbox layout
-# show the filtered row number
-# search multiple companies/varieties
-# export option: kable()

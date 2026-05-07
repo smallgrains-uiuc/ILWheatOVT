@@ -311,12 +311,15 @@ ui <- fluidPage(
           selectInput("smry", "Summary type:", choices = c("Compact", "Detailed"), selected = "Compact"),
           
           # Switch display
-          radioButtons(
-            "value_display",
-            "Display values:",
-            choices = c("Raw data" = "raw", "Percentage" = "percent"),
-            selected = "percent",
-            inline = TRUE
+          div(
+            title = "For Grain Yield and Test Weight, switch between raw data and percentages of the mean within each study/site. Mean value is set to 100%.",
+            radioButtons(
+              "value_display",
+              "Display values:",
+              choices = c("Raw data" = "raw", "Percentage" = "percent"),
+              selected = "percent",
+              inline = TRUE
+            )
           ),
           
           # Select
@@ -769,7 +772,7 @@ server <- function(input, output, session) {
       col_defs <- append(col_defs, list(list(targets = bc, className = "study-sep")))
     }
     
-    value_cols <- grep("^(Grain\\.Yield|Test\\.Weight|Plant\\.Height)_", names(df), value = TRUE)
+    value_cols <- grep("^(Grain\\.Yield|Test\\.Weight)_", names(df), value = TRUE)
     
     dt <- datatable(
       df,
@@ -831,7 +834,8 @@ server <- function(input, output, session) {
         formatStyle(
           columns = value_cols,
           color = styleInterval(c(100), c("#000000", "#d55e00"))
-        )
+        ) |>
+        formatString(value_cols, suffix = "%")
     } else {
       threshold_source <- table_data()
       threshold_cols <- intersect(value_cols, names(threshold_source))

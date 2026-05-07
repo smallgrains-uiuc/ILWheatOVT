@@ -1,6 +1,6 @@
 #' Normalize target traits as percent of study average
 #'
-#' Replaces raw values of Grain.Yield, Plant.Height, and Test.Weight
+#' Replaces raw values of Grain.Yield and Test.Weight
 #' with the percentage of the average within each study/site.
 #' The study average is set to 100.
 #'
@@ -9,7 +9,7 @@
 #' @return Data frame with normalized values for target traits.
 #' @export
 normalize_percentage <- function(df) {
-  target_traits <- c("Grain.Yield", "Plant.Height", "Test.Weight")
+  target_traits <- c("Grain.Yield", "Test.Weight")
   north_sites <- c("NorthRegionalAverage", "Urbana", "Hampshire", "Perry")
   south_sites <- c("SouthRegionalAverage", "StPeter", "Addieville", "Elkville")
   

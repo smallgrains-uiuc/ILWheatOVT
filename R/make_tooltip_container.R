@@ -34,7 +34,7 @@ make_tooltip_container <- function(df) {
     )
   )
   
-  sort_text <- "Click to sort ascending (↑); click again to sort descending (↓)."
+  sort_text <- "Click to sort ascending; click again to sort descending."
   
   cols <- names(df)
   data_cols <- cols[!cols %in% c("star", "company","number")]

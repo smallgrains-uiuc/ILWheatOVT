@@ -11,11 +11,13 @@ jointing_level <- function(df) {
   jtd_cols <- grep("^Jointing.Category_", names(df), value = TRUE)
   
   for (col in jtd_cols) {
+    values <- trimws(as.character(df[[col]]))
     df[[col]] <- factor(
-      df[[col]],
-      levels = c("E", "M", "L"),
+      values,
+      levels = c("E", "M/E", "M", "M/L", "L"),
       ordered = TRUE
     )
   }
+  
   df
 }

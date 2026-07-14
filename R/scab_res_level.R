@@ -8,12 +8,18 @@
 #' @return Data frame with ordered scab resistance column.
 #' @export
 scab_res_level <- function(df) {
-  if ("Scab.Category_ScabNursery" %in% colnames(df)) {
-    df$Scab.Category_ScabNursery <- factor(
-      df$Scab.Category_ScabNursery,
-      levels = c("S", "MS", "M", "MR"),
+  scab_cols <- grep("^Scab\\.Category", names(df), value = TRUE)
+  
+  for (col in scab_cols) {
+    values <- trimws(as.character(df[[col]]))
+    values[tolower(values) == "pending"] <- "pending"
+    
+    df[[col]] <- factor(
+      values,
+      levels = c("S", "MS", "M", "MR", "pending"),
       ordered = TRUE
     )
   }
+  
   df
 }

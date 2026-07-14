@@ -14,6 +14,7 @@ if (!requireNamespace("IllinoisOVT", quietly = TRUE)) {
 library(IllinoisOVT)
 
 
+
 # Load the current-year wheat trial dataset used by this browser.
 data(WheatOVT26)
 
@@ -164,6 +165,27 @@ ui <- fluidPage(
         vertical-align: middle !important;
       }
 
+      /* More compact table formatting used only in Detailed view */
+      body.detailed-view table.dataTable thead th {
+        font-size: 16px !important;
+        padding: 3px 6px !important;
+        line-height: 1 !important;
+      }
+
+      body.detailed-view table.dataTable tbody td {
+        padding: 1px 4px !important;
+        line-height: 1.1 !important;
+      }
+
+      table.dataTable td.company-column,
+      table.dataTable th.company-column,
+      table.dataTable td.variety-column,
+      table.dataTable th.variety-column {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+
       th.study-sep, td.study-sep {
         border-right: 2px solid #444 !important;
       }
@@ -292,7 +314,7 @@ ui <- fluidPage(
   
   # main page
   div(class = "fixed-title",
-      h2("Illinois Wheat Variety Test Data Overview"),
+      h2("2026 Illinois Wheat Variety Test Data Overview"),
       
       popover(
         actionButton("legend_btn", label = NULL, "Instructions",
@@ -317,11 +339,26 @@ ui <- fluidPage(
             radioButtons(
               "value_display",
               "Display values:",
-              choices = c("Raw data" = "raw", "Percentage" = "percent"),
-              selected = "percent",
+              choices = c("Actual values" = "raw", "Percentage of mean" = "percent"),
+              selected = "raw",
               inline = TRUE
             )
           ),
+          
+          checkboxInput(
+            "sort_by_yield",
+            "Always sort by yield",
+            value = FALSE
+          ),
+          
+          # Maturity slider
+          div(
+            title = "A higher value indicates a later maturity, a lower value indicates an earlier maturity. A value of 0 indicates the earliest maturing variety in the region.",
+            uiOutput("md_slider_ui")
+          ),
+          actionButton("refresh_sliders", "Refresh Slider"),
+          br(), br(),
+          
           
           # Select
           selectizeInput(
@@ -350,18 +387,11 @@ ui <- fluidPage(
             actionButton("toggle_star_all", "Star/Unstar All",
                          title = "Star/unstar all currently visible varieties."),
             actionButton("show_starred", "Show/Hide Starred",
-                         title = "Click again to return to the full table."),
+                         title = "Click again to return to the full table.")
           ),
           br(),
           
-          # Maturity slider
-          div(
-            title = "A higher value indicates a later maturity, a lower value indicates an earlier maturity. A value of 0 indicates the earliest maturing variety in the region.",
-            uiOutput("md_slider_ui")
-          ),
-          actionButton("refresh_sliders", "Refresh Sliders"),
-          br(), br(),
-          
+
           uiOutput("scab_checkboxes"),
           uiOutput("jtd_checkboxes"),
           uiOutput("site_checkboxes")
@@ -390,6 +420,34 @@ server <- function(input, output, session) {
   search_term <- reactiveVal("")
   starred <- reactiveVal(character(0))
   show_starred_only <- reactiveVal(FALSE)
+
+  
+  # Sort by the regional-average grain-yield column when yield sorting is active.
+  apply_yield_sort <- function(df) {
+    if (!isTRUE(input$sort_by_yield)) {
+      return(df)
+    }
+    
+    yield_col <- grep(
+      "^Grain\\.Yield_.*RegionalAverage$",
+      names(df),
+      value = TRUE
+    )
+    
+    if (length(yield_col) != 1) {
+      return(df)
+    }
+    
+    df[
+      order(
+        suppressWarnings(as.numeric(df[[yield_col]])),
+        decreasing = TRUE,
+        na.last = TRUE
+      ),
+      ,
+      drop = FALSE
+    ]
+  }
   
   # ------------------------------------------------------------------------------
   # Data Pipeline
@@ -474,7 +532,7 @@ server <- function(input, output, session) {
   })
   
   current_visible_varieties <- reactive({
-    df <- display_data()
+    df <- apply_yield_sort(display_data())
     req(df)
     unique(as.character(df$number))
   })
@@ -540,6 +598,18 @@ server <- function(input, output, session) {
     which(!duplicated(study, fromLast = TRUE)) + 2
   })
   
+
+  
+  observeEvent(input$smry, {
+    if (identical(input$smry, "Detailed")) {
+      addClass(selector = "body", class = "detailed-view")
+    } else {
+      removeClass(selector = "body", class = "detailed-view")
+    }
+
+    runjs("setTimeout(function(){ $(window).trigger('resize'); },150);")
+  }, ignoreInit = FALSE)
+
   observeEvent(input$search_btn, {
     search_term(trimws(input$search_text %||% ""))
   })
@@ -695,7 +765,7 @@ server <- function(input, output, session) {
     ranges <- get_maturity_range(table_data(), input$region)
     sliderInput(
       "md_range",
-      label = paste0("Maturity range (", nrow(df), ")"),
+      label = paste0("Filter by maturity (", nrow(df), " remaining)"),
       min = ranges$Maturity.Date[1],
       max = ranges$Maturity.Date[2],
       value = input$md_range %||% ranges$Maturity.Date
@@ -727,7 +797,7 @@ server <- function(input, output, session) {
     
     checkboxGroupInput(
       "show_scab",
-      "Show scab resistance:",
+      "Choose scab resistance levels:",
       choices = setNames(choices, labels),
       selected = input$show_scab %||% choices,
       inline = TRUE
@@ -761,7 +831,7 @@ server <- function(input, output, session) {
     
     checkboxGroupInput(
       "show_jtd",
-      "Show jointing categories:",
+      "Choose jointing categories:",
       choices = setNames(choices, labels),
       selected = input$show_jtd %||% choices,
       inline = TRUE
@@ -789,7 +859,7 @@ server <- function(input, output, session) {
     rebuild_trigger()
     
     # Avoid rebuild triggered by slider/row filtering
-    df <- display_data()
+    df <- apply_yield_sort(display_data())
     req(df)
     
     df <- cbind(
@@ -800,16 +870,56 @@ server <- function(input, output, session) {
       stringsAsFactors = FALSE
     )
     
+    yield_col <- grep(
+      "^Grain\\.Yield_.*RegionalAverage$",
+      names(df),
+      value = TRUE
+    )
+    
+    # DataTables uses zero-based column indexes.
+    yield_col_index <- if (length(yield_col) == 1) {
+      match(yield_col, names(df)) - 1L
+    } else {
+      integer(0)
+    }
+    
     col_defs <- list(
       list(targets = "_all", className = "dt-center"),
-      list(targets = 0, orderable = FALSE)
+      list(targets = 0, orderable = FALSE),
+      list(targets = 1, className = "dt-left company-column", width = "220px"),
+      list(targets = 2, className = "dt-left variety-column", width = "220px")
     )
+    
+    # While the feature is active, prevent clicks on other headings from
+    # replacing the regional-yield ordering.
+    if (isTRUE(input$sort_by_yield) && length(yield_col_index) == 1) {
+      other_columns <- setdiff(seq_along(names(df)) - 1L, yield_col_index)
+      col_defs <- append(
+        col_defs,
+        list(list(targets = other_columns, orderable = FALSE))
+      )
+    }
     bc <- boundary_cols()
     if (!is.null(bc)) {
       col_defs <- append(col_defs, list(list(targets = bc, className = "study-sep")))
     }
     
     value_cols <- grep("^(Grain\\.Yield|Test\\.Weight)_", names(df), value = TRUE)
+    
+    dt_options <- list(
+      scrollY = "calc(100vh - 180px)",
+      scrollX = TRUE,
+      scrollCollapse = TRUE,
+      autoWidth = FALSE,
+      paging = FALSE,
+      dom = "t",
+      fixedColumns = list(leftColumns = 3),
+      columnDefs = col_defs
+    )
+    
+    if (isTRUE(input$sort_by_yield) && length(yield_col_index) == 1) {
+      dt_options$order <- list(list(yield_col_index, "desc"))
+    }
     
     dt <- datatable(
       df,
@@ -849,20 +959,18 @@ server <- function(input, output, session) {
         "  });",
         "}, 300);"
       ),
-      options = list(
-        scrollY = "calc(100vh - 180px)",
-        scrollX = TRUE,
-        scrollCollapse = TRUE,
-        autoWidth = TRUE,
-        paging = FALSE,
-        dom = 't',
-        fixedColumns = list(leftColumns = 3),
-        columnDefs = col_defs
+      options = dt_options
+    )
+
+    table_font_size <- if (identical(input$smry, "Detailed")) "14px" else "16px"
+    table_padding <- if (identical(input$smry, "Detailed")) "1px 4px" else "2px 4px"
+
+    dt <- dt |>
+      formatStyle(
+        columns = names(df),
+        fontSize = table_font_size,
+        padding = table_padding
       )
-    ) |>
-      formatStyle(columns = names(df), 
-                  fontSize = '16px',
-                  padding = '2px 4px')
     
     # Percent mode highlights values above 100. Raw mode highlights values above the
     # current column mean from the unsearched table for the selected region/summary.
@@ -928,11 +1036,12 @@ server <- function(input, output, session) {
       input$search_btn,
       input$toggle_star_all,
       input$show_starred,
+      input$sort_by_yield,
       input$smry,
       input$region
     ),
     {
-      df <- display_data()
+      df <- apply_yield_sort(display_data())
       df <- cbind(
         star = ifelse(df$number %in% starred(),
                       '<i class="fa fa-star"></i>',

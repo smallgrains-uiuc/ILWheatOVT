@@ -13,8 +13,9 @@ if (!requireNamespace("IllinoisOVT", quietly = TRUE)) {
 }
 library(IllinoisOVT)
 
+
 # Load the current-year wheat trial dataset used by this browser.
-data(WheatOVT25)
+data(WheatOVT26)
 
 # User-facing help Text
 instruction_text <- HTML("
@@ -347,9 +348,9 @@ ui <- fluidPage(
           div(
             style = "display: flex; gap: 8px; align-items: center;",
             actionButton("toggle_star_all", "Star/Unstar All",
-                       title = "Star/unstar all currently visible varieties."),
+                         title = "Star/unstar all currently visible varieties."),
             actionButton("show_starred", "Show/Hide Starred",
-                       title = "Click again to return to the full table."),
+                         title = "Click again to return to the full table."),
           ),
           br(),
           
@@ -399,7 +400,7 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------------------
   table_data <- reactive({
     # pipe operators replace repeated assignments
-    raw_df <- WheatOVT25 |>
+    raw_df <- WheatOVT26 |>
       normalize_maturity() |>
       normalize_heading()
     
@@ -436,8 +437,11 @@ server <- function(input, output, session) {
   
   row_filters <- reactive({
     list(
-      jtd = input$show_jtd %||% character(0),
-      scab = input$show_scab %||% character(0)
+      # Dynamic checkbox inputs are temporarily NULL while their UI is being
+      # created. Use all categories as defaults so initialization does not
+      # remove every row from the table.
+      jtd = input$show_jtd %||% c("E", "M/E", "M", "M/L", "L"),
+      scab = input$show_scab %||% c("S", "MS", "M", "MR", "pending")
     )
   })
   
@@ -450,13 +454,13 @@ server <- function(input, output, session) {
     
     filters <- row_filters()
     
-    jtd_col <- grep("^Jointing.Category", names(df), value = TRUE)
-    if (length(jtd_col) == 1) {
+    jtd_col <- grep("^Jointing\\.Category", names(df), value = TRUE)
+    if (length(jtd_col) == 1 && length(filters$jtd) > 0) {
       df <- df[df[[jtd_col]] %in% filters$jtd, , drop = FALSE]
     }
     
-    scab_col <- grep("^Scab.Category", names(df), value = TRUE)
-    if (length(scab_col) == 1) {
+    scab_col <- grep("^Scab\\.Category", names(df), value = TRUE)
+    if (length(scab_col) == 1 && length(filters$scab) > 0) {
       df <- df[df[[scab_col]] %in% filters$scab, , drop = FALSE]
     }
     
@@ -628,9 +632,9 @@ server <- function(input, output, session) {
     updateSelectizeInput(session, "search_text", selected = "")
     updateCheckboxGroupInput(
       session, "show_scab",
-      selected = c("S", "MS", "M", "MR")
+      selected = c("S", "MS", "M", "MR", 'pending')
     )
-    updateCheckboxGroupInput(session, "show_jtd", selected = c("E", "M", "L"))
+    updateCheckboxGroupInput(session, "show_jtd", selected = c("E", 'M/E', "M","M/L", "L"))
     updateCheckboxGroupInput(
       session, "show_site",
       selected = switch(input$region,
@@ -653,8 +657,16 @@ server <- function(input, output, session) {
     search_term("")
     updateSelectizeInput(session, "search_text", selected = "")
     
-    updateCheckboxInput(session, "show_scab", value = FALSE)
-    updateCheckboxInput(session, "show_jtd", value = FALSE)
+    updateCheckboxGroupInput(
+      session,
+      "show_scab",
+      selected = c("S", "MS", "M", "MR", "pending")
+    )
+    updateCheckboxGroupInput(
+      session,
+      "show_jtd",
+      selected = c("E", "M/E", "M", "M/L", "L")
+    )
     updateCheckboxGroupInput(
       session, "show_site",
       selected = switch(input$region,
@@ -694,15 +706,28 @@ server <- function(input, output, session) {
     df <- data_filtered_rows()
     req(df)
     
-    scab_col <- grep("^Scab.Category", names(df), value = TRUE)
+    scab_col <- grep("^Scab\\.Category", names(df), value = TRUE)
+    
+    # Do not build the control unless exactly one matching column exists.
+    if (length(scab_col) != 1) {
+      return(NULL)
+    }
+    
+    choices <- c("S", "MS", "M", "MR", "pending")
     counts <- table(df[[scab_col]])
-    choices <- c("S", "MS", "M", "MR")
+    
+    count_values <- setNames(integer(length(choices)), choices)
+    matching <- intersect(names(counts), choices)
+    count_values[matching] <- as.integer(counts[matching])
+    
     labels <- paste0(
       choices,
-      " (", counts[choices] %||% 0, ")"
+      " (", count_values[choices], ")"
     )
     
-    checkboxGroupInput("show_scab", "Show scab resistance:",
+    checkboxGroupInput(
+      "show_scab",
+      "Show scab resistance:",
       choices = setNames(choices, labels),
       selected = input$show_scab %||% choices,
       inline = TRUE
@@ -711,15 +736,27 @@ server <- function(input, output, session) {
   
   output$jtd_checkboxes <- renderUI({
     req(input$smry == "Detailed")
+    
     df <- data_filtered_rows()
     req(df)
     
-    jtd_col <- grep("^Jointing.Category", names(df), value = TRUE)
+    jtd_col <- grep("^Jointing\\.Category", names(df), value = TRUE)
+    
+    # Do not build the control unless exactly one matching column exists.
+    if (length(jtd_col) != 1) {
+      return(NULL)
+    }
+    
+    choices <- c("E", "M/E", "M", "M/L", "L")
     counts <- table(df[[jtd_col]])
-    choices <- c("E", "M", "L")
+    
+    count_values <- setNames(integer(length(choices)), choices)
+    matching <- intersect(names(counts), choices)
+    count_values[matching] <- as.integer(counts[matching])
+    
     labels <- paste0(
       choices,
-      " (", counts[choices] %||% 0, ")"
+      " (", count_values[choices], ")"
     )
     
     checkboxGroupInput(
@@ -737,9 +774,9 @@ server <- function(input, output, session) {
                       South = c("Addieville", "Elkville", "StPeter"),
                       North = c("Hampshire", "Perry", "Urbana"))
     checkboxGroupInput("show_site", "Show test sites:",
-      choices = choices,
-      selected = choices,
-      inline = TRUE)
+                       choices = choices,
+                       selected = choices,
+                       inline = TRUE)
   })
   
   # ------------------------------------------------------------------------------

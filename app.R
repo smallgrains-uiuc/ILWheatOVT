@@ -20,13 +20,11 @@ data(WheatOVT26)
 
 # User-facing help Text
 instruction_text <- HTML("
-<b>*</b> You may interact with the sidebar. Select the region and table type of interest; narrow down the range of maturity or jointing date category; hide Scab-susceptible varieties; hide other test sites to compare site of interest and regional averages.<br>
-Clicking on column names allows you to change the data sorting; upward arrows indicate ascending order, and downward arrows indicate descending order.<br>
+<b>*</b> Select the the desired region, then sort and filter as desired. Choose the 'Compact' summary for just yield, test weight, and scab resistance. Choose 'Detailed' for all traits and more options. Rotate phone horizontally after filtering if on a phone. Use a computer for the best experience. <br>
 <br>
-<b>1.</b> Northern phenology is based on data collected in Urbana; Southern phenology is based on data collected in St. Peter.<br>
-<b>2.</b> Varieties were evaluated for the heading date and the date when they reached maturity. A greater value indicates a later date, a smaller value indicates an earlier date. A value of 0 indicates the earliest heading/maturing variety in the region.<br>
-<b>3.</b> Varieties were evaluated for the timing of jointing and classified into categories: E = early, M = medium, L = Late. Jointing begins at Feekes growth stage 6 and marks the beginning of more rapid growth and increased vulnerability to freeze damage. Varieties that are classified as E, jointed at a time when hard freezes are probable. Varieties that are classified as M, jointed at a time when hard freezes are possible, but unlikely. Varieties classified as L, jointed at a time when hard freezes are highly unlikely.<br>
-<b>4.</b> Varieties were evaluated for resistance to Scab (FHB) at the University of Illinois South Farm at Urbana, IL. To promote disease symptoms, we spread scabby corn kernels on the soil surface 3 weeks before heading and mist irrigated three times per day for 30 minutes. Ratings for each variety are based on expected vomitoxin levels under FHB epidemic conditions. Ratings are expressed on a 1 to 9 scale with 1 being the best (lowest vomitoxin) and 9 being the worst (highest vomitoxin). Varieties with ratings 4.3 or lower are considered at least moderately resistant to FHB. MR = Moderately Resistant, which is the highest level of resistance available, M = Intermediate level of resistance, MS = Moderately susceptible, S = Susceptible. Higher levels of resistance provide greater control of the disease. The best control is obtained when moderate resistance is combined with a fungicide at flowering.
+<b>1.</b> Matuity and heading are measued in number of days after the earliest variety.<br>
+<b>2.</b> Jointing time is categorized: E = early, M = medium, L = Late. Early jointing leads to greater spring freeze risk. <br>
+<b>3.</b> Scab resistance is categorized: MR= The highest resistance level avaliable, M= Intermediate level of resistnace, MS = Moderately suceptible, S = Suceptible, Pending = data are being collected.
 ")
 
 # ------------------------------------------------------------------------------

@@ -1759,19 +1759,81 @@ server <- function(input, output, session) {
     )
   })
   
-  output$scab_checkboxes <- renderUI({
+  # Data used for the counts shown beside the desktop scab categories.
+  # Apply all row filters except the scab-category filter itself, so each label
+  # reports how many varieties are available after the other current filters.
+  scab_count_data <- reactive({
     df <- table_data()
+    req(df)
+    
+    maturity_range <- md_range_debounced()
+    if (length(maturity_range) == 2 &&
+        all(is.finite(maturity_range))) {
+      df <- filter_by_maturity_range(
+        df,
+        input$region,
+        maturity_range
+      )
+    }
+    
+    # Apply the desktop jointing filter in Detailed view.
+    if (identical(input$smry, "Detailed")) {
+      selected_jtd <- input$show_jtd %||%
+        c("E", "M/E", "M", "M/L", "L")
+      
+      jtd_col <- grep("^Jointing\\.Category", names(df), value = TRUE)
+      if (length(jtd_col) == 1 && length(selected_jtd) > 0) {
+        all_jtd_levels <- c("E", "M/E", "M", "M/L", "L")
+        keep_rows <- df[[jtd_col]] %in% selected_jtd
+        
+        if (setequal(selected_jtd, all_jtd_levels)) {
+          keep_rows <- keep_rows |
+            is.na(df[[jtd_col]]) |
+            df[[jtd_col]] == ""
+        }
+        
+        df <- df[keep_rows, , drop = FALSE]
+      }
+    }
+    
+    # Apply the current company/variety search.
+    df <- filter_by_search(df, search_term())
+    
+    # Apply starred-only mode when active.
+    if (isTRUE(show_starred_only())) {
+      df <- filter_by_starred(
+        df,
+        starred(),
+        TRUE
+      )
+    }
+    
+    df
+  })
+  
+  output$scab_checkboxes <- renderUI({
+    df <- scab_count_data()
     req(df)
     
     scab_col <- grep("^Scab\\.Category", names(df), value = TRUE)
     if (length(scab_col) != 1) return(NULL)
     
     choices <- c("S", "MS", "M", "MR", "pending")
-    counts <- table(df[[scab_col]])
-    count_values <- setNames(integer(length(choices)), choices)
+    counts <- table(df[[scab_col]], useNA = "no")
+    
+    count_values <- setNames(
+      integer(length(choices)),
+      choices
+    )
+    
     matching <- intersect(names(counts), choices)
     count_values[matching] <- as.integer(counts[matching])
-    labels <- paste0(choices, " (", count_values[choices], ")")
+    labels <- paste0(
+      choices,
+      " (",
+      count_values[choices],
+      ")"
+    )
     
     checkboxGroupInput(
       "show_scab",

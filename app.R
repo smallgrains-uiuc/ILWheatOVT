@@ -1844,20 +1844,69 @@ server <- function(input, output, session) {
     )
   })
   
+  # Data used for the counts shown beside the desktop jointing categories.
+  # Apply all row filters except the jointing-category filter itself, so each
+  # label reports how many varieties are available after the other filters.
+  jointing_count_data <- reactive({
+    df <- table_data()
+    req(df)
+    
+    maturity_range <- md_range_debounced()
+    if (length(maturity_range) == 2 &&
+        all(is.finite(maturity_range))) {
+      df <- filter_by_maturity_range(
+        df,
+        input$region,
+        maturity_range
+      )
+    }
+    
+    selected_scab <- input$show_scab %||%
+      c("S", "MS", "M", "MR", "pending")
+    
+    scab_col <- grep("^Scab\\.Category", names(df), value = TRUE)
+    if (length(scab_col) == 1 && length(selected_scab) > 0) {
+      df <- df[df[[scab_col]] %in% selected_scab, , drop = FALSE]
+    }
+    
+    df <- filter_by_search(df, search_term())
+    
+    if (isTRUE(show_starred_only())) {
+      df <- filter_by_starred(
+        df,
+        starred(),
+        TRUE
+      )
+    }
+    
+    df
+  })
+  
   output$jtd_checkboxes <- renderUI({
     req(input$smry == "Detailed")
-    df <- table_data()
+    
+    df <- jointing_count_data()
     req(df)
     
     jtd_col <- grep("^Jointing\\.Category", names(df), value = TRUE)
     if (length(jtd_col) != 1) return(NULL)
     
     choices <- c("E", "M/E", "M", "M/L", "L")
-    counts <- table(df[[jtd_col]])
-    count_values <- setNames(integer(length(choices)), choices)
+    counts <- table(df[[jtd_col]], useNA = "no")
+    
+    count_values <- setNames(
+      integer(length(choices)),
+      choices
+    )
+    
     matching <- intersect(names(counts), choices)
     count_values[matching] <- as.integer(counts[matching])
-    labels <- paste0(choices, " (", count_values[choices], ")")
+    labels <- paste0(
+      choices,
+      " (",
+      count_values[choices],
+      ")"
+    )
     
     checkboxGroupInput(
       "show_jtd",

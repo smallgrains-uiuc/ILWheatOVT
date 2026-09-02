@@ -54,15 +54,10 @@ make_tooltip_container <- function(df) {
   
   # Study header
   header_row1 <- list(
-    tags$th(
-      HTML('<i class="fa fa-star"></i>'),
-      rowspan = 2,
-      style = "text-align:center;",
-      title = "Click to star or unstar this row."
-    ),
-    tags$th("company", rowspan = 2, style = "text-align:center;"),
-    tags$th("variety",  rowspan = 2, style = "text-align:center;")
-  )
+    tags$th("", style = "text-align:center;"),
+    tags$th("", style = "text-align:center;"),
+    tags$th("", style = "text-align:center;")
+)
   
   for (st in unique(study)) {
     n <- sum(study == st)
@@ -71,21 +66,18 @@ make_tooltip_container <- function(df) {
   }
   
   # Trait header
-  header_row2 <- lapply(seq_along(data_cols), function(i) {
-    col <- data_cols[i]
-    tips <- unlist(lapply(tooltip_rules, function(rule) {
-      if (grepl(rule$pattern, col)) rule$text else NULL
-    }))
-    
-    trait_label <- format_trait(trait[i])
-    full_title <- if (length(tips)) {
-      paste(c(tips, sort_text), collapse = "\n\n")
-    } else {
-      sort_text
-    }
-    
-    tags$th(HTML(trait_label), title = full_title)
-  })
+  header_row2 <- c(
+  list(
+    tags$th(
+      HTML('<i class="fa fa-star"></i>'),
+      style = "text-align:center;",
+      title = "Click to star or unstar this row."
+    ),
+    tags$th("company", style = "text-align:center;"),
+    tags$th("variety", style = "text-align:center;")
+  ),
+  header_row2
+)
   
   withTags(
     table(class = "display",

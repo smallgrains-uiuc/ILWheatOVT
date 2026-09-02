@@ -10,7 +10,7 @@
 #' @importFrom shiny tags HTML
 #' @export
 make_tooltip_container <- function(df) {
-  
+
   tooltip_rules <- list(
     MaturityHeading = list(
       pattern = "Maturity.Date|Heading.Date",
@@ -33,73 +33,61 @@ make_tooltip_container <- function(df) {
       text = "Performance under SBMV pressure."
     )
   )
-  
+
+  sort_text <- "Click to sort ascending (↑); click again to sort descending (↓)."
   sort_text <- "Click to sort ascending; click again to sort descending."
-  
+
   cols <- names(df)
   data_cols <- cols[!cols %in% c("star", "company","number")]
-  
+
   parsed <- do.call(rbind, strsplit(data_cols, "_"))
   trait <- parsed[,1]
   study <- parsed[,2]
-  
+
   study_groups <- split(data_cols, study)
-  
+
   format_study <- function(x) {
     x <- gsub("([a-z])([A-Z])", "\\1 \\2", x, perl = TRUE) # lowercase + space + word
     x <- gsub("([A-Z]+)([A-Z][a-z])", "\\1 \\2", x, perl = TRUE) # All caps + space + word
     x
   }
   format_trait <- function(x) gsub("\\.", "<br>", x)
-  
+
   # Study header
   header_row1 <- list(
-    tags$th("", style = "text-align:center;"),
-    tags$th("", style = "text-align:center;"),
-    tags$th("", style = "text-align:center;")
-)
-  
+    tags$th(
+      HTML('<i class="fa fa-star"></i>'),
+      rowspan = 2,
+      style = "text-align:center;",
+      title = "Click to star or unstar this row."
+    ),
+    tags$th("company", rowspan = 2, style = "text-align:center;"),
+    tags$th("variety",  rowspan = 2, style = "text-align:center;")
+  )
+
   for (st in unique(study)) {
     n <- sum(study == st)
     study_label <- format_study(st)
     header_row1[[length(header_row1)+1]] <- tags$th(study_label, colspan=n, style="text-align:center; font-weight:700;")
   }
-  
+
   # Trait header
-header_row2 <- lapply(seq_along(data_cols), function(i) {
-  col <- data_cols[i]
+  header_row2 <- lapply(seq_along(data_cols), function(i) {
+    col <- data_cols[i]
+    tips <- unlist(lapply(tooltip_rules, function(rule) {
+      if (grepl(rule$pattern, col)) rule$text else NULL
+    }))
 
-  tips <- unlist(lapply(tooltip_rules, function(rule) {
-    if (grepl(rule$pattern, col)) rule$text else NULL
-  }))
+    trait_label <- format_trait(trait[i])
+    full_title <- if (length(tips)) {
+      paste(c(tips, sort_text), collapse = "\n\n")
+    } else {
+      sort_text
+    }
 
-  trait_label <- format_trait(trait[i])
+    tags$th(HTML(trait_label), title = full_title)
+  })
 
-  full_title <- if (length(tips)) {
-    paste(c(tips, sort_text), collapse = "\n\n")
-  } else {
-    sort_text
-  }
-
-  tags$th(
-    HTML(trait_label),
-    title = full_title
-  )
-})
-
-header_row2 <- c(
-  list(
-    tags$th(
-      HTML('<i class="fa fa-star"></i>'),
-      style = "text-align:center;",
-      title = "Click to star or unstar this row."
-    ),
-    tags$th("company", style = "text-align:center;"),
-    tags$th("variety", style = "text-align:center;")
-  ),
-  header_row2
-)
-  
   withTags(
     table(class = "display",
           thead(
@@ -108,4 +96,3 @@ header_row2 <- c(
           )
     )
   )
-}

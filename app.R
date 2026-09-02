@@ -2210,7 +2210,7 @@ server <- function(input, output, session) {
         "    Shiny.setInputValue('toggle_star', key, {priority: 'event'});",
         "  });",
         "};",
-        "bindStarClick(dt);",
+        "bindStarClick(dt);"
       ),
       options = dt_options
     )

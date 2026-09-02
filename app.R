@@ -162,6 +162,12 @@ ui <- fluidPage(
         vertical-align: middle !important;
       }
 
+      /* Keep row hover highlighting consistent across FixedColumns sticky cells */
+      table.dataTable tbody tr:hover > .dtfc-fixed-left,
+      table.dataTable tbody tr:hover > .dtfc-fixed-right {
+        background-color: #f2f2f2 !important;
+      }
+
       /* More compact table formatting used only in Detailed view */
       body.detailed-view table.dataTable thead th {
         font-size: 16px !important;
@@ -1584,7 +1590,7 @@ server <- function(input, output, session) {
   })
   
   # Starred varieties are tracked by variety number and updated from both the main
-  # table and the fixed-column clone created by DataTables.
+  # table, including clicks in FixedColumns sticky cells.
   # Star/Unstar
   observeEvent(input$toggle_star, {
     key <- as.character(input$toggle_star)
@@ -2205,20 +2211,6 @@ server <- function(input, output, session) {
         "  });",
         "};",
         "bindStarClick(dt);",
-        "setTimeout(function() {",
-        "  $('.DTFC_Cloned').each(function() {",
-        "    $(this).on('click', 'tbody td:first-child', function() {",
-        "      var rowText = $(this).closest('tr').find('td').eq(2).text().trim();",
-        "      var isStar = $(this).find('i').hasClass('fa-star');",
-        "      if (isStar) {",
-        "        $(this).html('<i class=\"fa fa-star-o\"></i>');",
-        "      } else {",
-        "        $(this).html('<i class=\"fa fa-star\"></i>');",
-        "      }",
-        "      Shiny.setInputValue('toggle_star', rowText, {priority: 'event'});",
-        "    });",
-        "  });",
-        "}, 300);"
       ),
       options = dt_options
     )

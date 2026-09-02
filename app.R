@@ -7,10 +7,6 @@ library(dplyr)
 library(reshape)
 library(htmltools)
 library(knitr)
-
-if (!requireNamespace("IllinoisOVT", quietly = TRUE)) {
-  devtools::install_github("smallgrains-uiuc/ILWheatOVT")
-}
 library(IllinoisOVT)
 
 

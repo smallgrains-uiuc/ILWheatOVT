@@ -9,7 +9,9 @@ library(htmltools)
 library(knitr)
 library(IllinoisOVT)
 
-
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
 
 # Load the current-year wheat trial dataset used by this browser.
 data(WheatOVT26)

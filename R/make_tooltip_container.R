@@ -66,7 +66,28 @@ make_tooltip_container <- function(df) {
   }
   
   # Trait header
-  header_row2 <- c(
+header_row2 <- lapply(seq_along(data_cols), function(i) {
+  col <- data_cols[i]
+
+  tips <- unlist(lapply(tooltip_rules, function(rule) {
+    if (grepl(rule$pattern, col)) rule$text else NULL
+  }))
+
+  trait_label <- format_trait(trait[i])
+
+  full_title <- if (length(tips)) {
+    paste(c(tips, sort_text), collapse = "\n\n")
+  } else {
+    sort_text
+  }
+
+  tags$th(
+    HTML(trait_label),
+    title = full_title
+  )
+})
+
+header_row2 <- c(
   list(
     tags$th(
       HTML('<i class="fa fa-star"></i>'),

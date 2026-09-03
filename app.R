@@ -2231,7 +2231,7 @@ server <- function(input, output, session) {
       dt <- dt |>
         formatStyle(
           columns = value_cols,
-          color = styleInterval(c(100), c("#000000", "#d55e00"))
+          fontWeight = styleInterval(c(100), c("normal", "bold"))
         ) |>
         formatString(value_cols, suffix = "%")
     } else {
@@ -2250,7 +2250,7 @@ server <- function(input, output, session) {
             dt <- dt |>
               formatStyle(
                 columns = col,
-                color = styleInterval(c(threshold), c("#000000", "#d55e00"))
+                fontWeight = styleInterval(c(threshold), c("normal", "bold"))
               )
           }
         }

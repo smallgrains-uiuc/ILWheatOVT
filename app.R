@@ -7,11 +7,13 @@ library(dplyr)
 library(reshape)
 library(htmltools)
 library(knitr)
+
+if (!requireNamespace("IllinoisOVT", quietly = TRUE)) {
+  devtools::install_github("smallgrains-uiuc/ILWheatOVT")
+}
 library(IllinoisOVT)
 
-`%||%` <- function(x, y) {
-  if (is.null(x)) y else x
-}
+
 
 # Load the current-year wheat trial dataset used by this browser.
 data(WheatOVT26)
@@ -43,6 +45,7 @@ ui <- fluidPage(
   # sidebar behavior, and idle-session refresh.
   tags$head(
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"),
+    
     # Format and font
     tags$style(HTML("
       /* Prevent entire webpage scrolling */
@@ -160,12 +163,6 @@ ui <- fluidPage(
         padding: 4px 6px !important;
         text-align: center !important;
         vertical-align: middle !important;
-      }
-
-      /* Keep row hover highlighting consistent across FixedColumns sticky cells */
-      table.dataTable tbody tr:hover > .dtfc-fixed-left,
-      table.dataTable tbody tr:hover > .dtfc-fixed-right {
-        background-color: #f2f2f2 !important;
       }
 
       /* More compact table formatting used only in Detailed view */
@@ -790,8 +787,35 @@ ui <- fluidPage(
       });
     ")),
     
+    #Suppress a harmless warning that could not be resoved for now
+    tags$script(HTML("
+  (function () {
+    const originalAlert = window.alert;
+
+    window.alert = function (message) {
+      const text = String(message || '');
+
+      const isTransientPhenologyWarning =
+        text.includes('DataTables warning') &&
+        text.includes(\"The column name 'Maturity.Date_\") &&
+        text.includes(\"Phenology' is not found in data\");
+
+      if (isTransientPhenologyWarning) {
+        console.warn(
+          'Suppressed transient DataTables column warning:',
+          text
+        );
+        return;
+      }
+
+      originalAlert.apply(window, arguments);
+    };
+  })();
+")),
+    
+    
     # Allow the server to actively restore regional-yield sorting after the
-    # user checks Always sort by yield.
+    # user checks sort by yield.
     tags$script(HTML("
       Shiny.addCustomMessageHandler('sortTableByColumn', function(message) {
         var tableElement = document.querySelector('#table table.dataTable');
@@ -1001,7 +1025,7 @@ ui <- fluidPage(
           
           checkboxInput(
             "sort_by_yield",
-            "Always sort by yield",
+            "Sort by yield",
             value = FALSE
           ),
           
@@ -1088,7 +1112,12 @@ server <- function(input, output, session) {
   mobile_filters_visible <- reactiveVal(TRUE)
   table_initialized <- reactiveVal(FALSE)
   structural_rebuild <- reactiveVal(FALSE)
+  
+  # Schema confirmed to exist in the browser.
   rendered_table_columns <- reactiveVal(character(0))
+  
+  # Schema currently being constructed by renderDT().
+  pending_table_columns <- reactiveVal(character(0))
   
   # Use mobile trait-filter inputs directly whenever they are available.
   effective_scab_filter <- reactive({
@@ -1355,6 +1384,7 @@ server <- function(input, output, session) {
     {
       structural_rebuild(TRUE)
       rendered_table_columns(character(0))
+      pending_table_columns(character(0))
       rebuild_trigger(rebuild_trigger() + 1)
     },
     ignoreInit = FALSE,
@@ -1590,7 +1620,7 @@ server <- function(input, output, session) {
   })
   
   # Starred varieties are tracked by variety number and updated from both the main
-  # table, including clicks in FixedColumns sticky cells.
+  # table and the fixed-column clone created by DataTables.
   # Star/Unstar
   observeEvent(input$toggle_star, {
     key <- as.character(input$toggle_star)
@@ -1611,6 +1641,14 @@ server <- function(input, output, session) {
         df,
         stringsAsFactors = FALSE
       )
+      current_schema <- rendered_table_columns()
+      
+      if (isTRUE(structural_rebuild()) ||
+          length(current_schema) == 0 ||
+          !identical(names(df), current_schema)) {
+        return()
+      }
+      
       replaceData(proxy, df, resetPaging = FALSE, rownames = FALSE)
     }
   })
@@ -1636,8 +1674,17 @@ server <- function(input, output, session) {
       df,
       stringsAsFactors = FALSE
     )
+    current_schema <- rendered_table_columns()
+    
+    if (isTRUE(structural_rebuild()) ||
+        length(current_schema) == 0 ||
+        !identical(names(df), current_schema)) {
+      return()
+    }
+    
     replaceData(proxy, df, resetPaging = FALSE, rownames = FALSE)
   })
+  #####
   
   observeEvent(input$show_starred, {
     show_starred_only(!show_starred_only())
@@ -2120,8 +2167,10 @@ server <- function(input, output, session) {
       stringsAsFactors = FALSE
     )
     
-    # Save the exact schema used to build this DataTables widget.
-    rendered_table_columns(names(df))
+    # Save the schema being built, but do not treat it as active until
+    # the browser confirms that the new DataTables widget has initialized.
+    pending_table_columns(names(df))
+    rendered_table_columns(character(0))
     
     yield_col <- grep(
       "^Grain\\.Yield_.*RegionalAverage$",
@@ -2210,7 +2259,21 @@ server <- function(input, output, session) {
         "    Shiny.setInputValue('toggle_star', key, {priority: 'event'});",
         "  });",
         "};",
-        "bindStarClick(dt);"
+        "bindStarClick(dt);",
+        "setTimeout(function() {",
+        "  $('.DTFC_Cloned').each(function() {",
+        "    $(this).on('click', 'tbody td:first-child', function() {",
+        "      var rowText = $(this).closest('tr').find('td').eq(2).text().trim();",
+        "      var isStar = $(this).find('i').hasClass('fa-star');",
+        "      if (isStar) {",
+        "        $(this).html('<i class=\"fa fa-star-o\"></i>');",
+        "      } else {",
+        "        $(this).html('<i class=\"fa fa-star\"></i>');",
+        "      }",
+        "      Shiny.setInputValue('toggle_star', rowText, {priority: 'event'});",
+        "    });",
+        "  });",
+        "}, 300);"
       ),
       options = dt_options
     )
@@ -2225,7 +2288,7 @@ server <- function(input, output, session) {
         padding = table_padding
       )
     
-    # Percent mode highlights values above 100. Raw mode highlights values above the
+    # Percent mode bolds values above 100%. Raw mode bolds values above the
     # current column mean from the unsearched table for the selected region/summary.
     if (identical(input$value_display, "percent")) {
       dt <- dt |>
@@ -2292,6 +2355,12 @@ server <- function(input, output, session) {
   # DataTables widget. This prevents startup-only empty states from replacing
   # the valid initial data.
   observeEvent(input$table_client_initialized, {
+    pending_schema <- pending_table_columns()
+    
+    if (length(pending_schema) > 0) {
+      rendered_table_columns(pending_schema)
+    }
+    
     table_initialized(TRUE)
     structural_rebuild(FALSE)
     addClass(selector = "body", class = "table-ready")
@@ -2342,7 +2411,8 @@ server <- function(input, output, session) {
       # replaceData() can change rows but cannot change the table's columns.
       # During Compact/Detailed or North/South transitions, wait for renderDT()
       # to create the widget with the new schema.
-      if (length(current_schema) == 0 ||
+      if (isTRUE(structural_rebuild()) ||
+          length(current_schema) == 0 ||
           !identical(names(df), current_schema)) {
         return()
       }
